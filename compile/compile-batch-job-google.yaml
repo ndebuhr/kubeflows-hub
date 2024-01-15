@@ -1,0 +1,110 @@
+# PIPELINE DEFINITION
+# Name: compile-batch-job-google
+# Inputs:
+#    input_filepaths: list
+#    input_mime_type: str
+# Outputs:
+#    Output: str
+#    batch_data: system.Artifact
+components:
+  comp-compile-batch-job-google:
+    executorLabel: exec-compile-batch-job-google
+    inputDefinitions:
+      parameters:
+        input_filepaths:
+          parameterType: LIST
+        input_mime_type:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        batch_data:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-compile-batch-job-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - compile_batch_job_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef compile_batch_job_google(\n    input_filepaths: List[str],\n\
+          \    input_mime_type: str,\n    batch_data: Output[Artifact],\n) -> str:\n\
+          \    with open(batch_data.path, \"w\") as file:\n        for input_filepath\
+          \ in input_filepaths:\n            file.write(\n                json.dumps(\n\
+          \                    {\n                        \"content\": input_filepath,\n\
+          \                        \"mimeType\": input_mime_type,\n              \
+          \      }\n                )\n                + \"\\n\"\n            )\n\n\
+          \    batch_data.metadata[\"mimeType\"] = \"application/jsonl\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: compile-batch-job-google
+root:
+  dag:
+    outputs:
+      artifacts:
+        batch_data:
+          artifactSelectors:
+          - outputArtifactKey: batch_data
+            producerSubtask: compile-batch-job-google
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: compile-batch-job-google
+    tasks:
+      compile-batch-job-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-compile-batch-job-google
+        inputs:
+          parameters:
+            input_filepaths:
+              componentInputParameter: input_filepaths
+            input_mime_type:
+              componentInputParameter: input_mime_type
+        taskInfo:
+          name: compile-batch-job-google
+  inputDefinitions:
+    parameters:
+      input_filepaths:
+        parameterType: LIST
+      input_mime_type:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      batch_data:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      Output:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

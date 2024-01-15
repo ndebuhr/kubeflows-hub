@@ -1,0 +1,170 @@
+# PIPELINE DEFINITION
+# Name: split-audio-on-silence
+# Inputs:
+#    absolute_silence_threshold_db: float
+#    audio: system.Artifact
+#    audio_format: str [Default: 'wav']
+#    output_filepath_template: str [Default: '/tmp/segment-%d.wav']
+#    relative_silence_threshold_db: float [Default: -24.0]
+#    seek_step_ms: int [Default: 10.0]
+#    silence_duration_ms: int
+# Outputs:
+#    Output: list
+components:
+  comp-split-audio-on-silence:
+    executorLabel: exec-split-audio-on-silence
+    inputDefinitions:
+      artifacts:
+        audio:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        absolute_silence_threshold_db:
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+        audio_format:
+          defaultValue: wav
+          isOptional: true
+          parameterType: STRING
+        output_filepath_template:
+          defaultValue: /tmp/segment-%d.wav
+          isOptional: true
+          parameterType: STRING
+        relative_silence_threshold_db:
+          defaultValue: -24.0
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+        seek_step_ms:
+          defaultValue: 10.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        silence_duration_ms:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: LIST
+deploymentSpec:
+  executors:
+    exec-split-audio-on-silence:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_audio_on_silence
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pydub' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_audio_on_silence(\n    audio: Input[Artifact],\n    silence_duration_ms:\
+          \ int,  # in milliseconds\n    audio_format: str = \"wav\",\n    absolute_silence_threshold_db:\
+          \ float = None,\n    relative_silence_threshold_db: float = -24,\n    seek_step_ms:\
+          \ int = 10,  # in milliseconds\n    output_filepath_template: str = \"/tmp/segment-%d.wav\"\
+          ,\n) -> List[str]:\n    import os\n    from pydub import AudioSegment, silence\n\
+          \n    if audio_format == \"wav\":\n        audio_data = AudioSegment.from_wav(audio.path)\n\
+          \    elif audio_format == \"mp3\":\n        audio_data = AudioSegment.from_mp3(audio.path)\n\
+          \    else:\n        raise ValueError(f\"Unsupported audio format: {audio_format}\"\
+          )\n\n    if absolute_silence_threshold_db is not None:\n        silence_thresh\
+          \ = absolute_silence_threshold_db\n    elif relative_silence_threshold_db\
+          \ is not None:\n        silence_thresh = audio_data.dBFS + relative_silence_threshold_db\n\
+          \    else:\n        raise ValueError(\"Must specify either absolute or relative\
+          \ silence threshold\")\n\n    silence_segments = silence.detect_silence(\n\
+          \        audio_data,\n        min_silence_len=silence_duration,\n      \
+          \  silence_thresh=silence_thresh,\n        seek_step=seek_step_ms,\n   \
+          \ )\n\n    silence_midpoints = [\n        int(sum(segment) / len(segment))\
+          \ for segment in silence_segments\n    ]\n    audio_split_points = [0] +\
+          \ silence_midpoints + [len(audio_data)]\n    audio_segments = list(zip(audio_split_points[:-1],\
+          \ audio_split_points[1:]))\n\n    base_filename = os.path.basename(audio.path)\n\
+          \n    output_files = []\n    for i, (start, end) in enumerate(audio_segments):\n\
+          \        print(f\"Exporting {base_filename} segment {i} from {start} to\
+          \ {end}\")\n        output_file = output_filepath_template % i\n       \
+          \ audio[start:end].export(output_file, format=audio_format)\n        output_files.append(output_file)\n\
+          \n    return output_files\n\n"
+        image: ndebuhr/python-ffmpeg:3.11
+pipelineInfo:
+  name: split-audio-on-silence
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: split-audio-on-silence
+    tasks:
+      split-audio-on-silence:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-audio-on-silence
+        inputs:
+          artifacts:
+            audio:
+              componentInputArtifact: audio
+          parameters:
+            absolute_silence_threshold_db:
+              componentInputParameter: absolute_silence_threshold_db
+            audio_format:
+              componentInputParameter: audio_format
+            output_filepath_template:
+              componentInputParameter: output_filepath_template
+            relative_silence_threshold_db:
+              componentInputParameter: relative_silence_threshold_db
+            seek_step_ms:
+              componentInputParameter: seek_step_ms
+            silence_duration_ms:
+              componentInputParameter: silence_duration_ms
+        taskInfo:
+          name: split-audio-on-silence
+  inputDefinitions:
+    artifacts:
+      audio:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      absolute_silence_threshold_db:
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      audio_format:
+        defaultValue: wav
+        isOptional: true
+        parameterType: STRING
+      output_filepath_template:
+        defaultValue: /tmp/segment-%d.wav
+        isOptional: true
+        parameterType: STRING
+      relative_silence_threshold_db:
+        defaultValue: -24.0
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      seek_step_ms:
+        defaultValue: 10.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      silence_duration_ms:
+        parameterType: NUMBER_INTEGER
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: LIST
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

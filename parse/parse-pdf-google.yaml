@@ -1,0 +1,130 @@
+# PIPELINE DEFINITION
+# Name: parse-pdf-google
+# Inputs:
+#    documentai_location: str [Default: 'us']
+#    documentai_processor_id: str
+#    documentai_project_id: str
+#    pdf: system.Artifact
+# Outputs:
+#    text: system.Artifact
+components:
+  comp-parse-pdf-google:
+    executorLabel: exec-parse-pdf-google
+    inputDefinitions:
+      artifacts:
+        pdf:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        documentai_location:
+          defaultValue: us
+          isOptional: true
+          parameterType: STRING
+        documentai_processor_id:
+          parameterType: STRING
+        documentai_project_id:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        text:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-parse-pdf-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - parse_pdf_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-documentai'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef parse_pdf_google(\n    pdf: Input[Artifact],\n    text: Output[Artifact],\n\
+          \    documentai_project_id: str,\n    documentai_processor_id: str,\n  \
+          \  documentai_location: str = \"us\",\n):\n    from google.cloud import\
+          \ documentai\n    from google.api_core.client_options import ClientOptions\n\
+          \n    MIME_TYPE = \"application/pdf\"\n\n    opts = ClientOptions(\n   \
+          \     api_endpoint=f\"{documentai_location}-documentai.googleapis.com\"\n\
+          \    )\n    client = documentai.DocumentProcessorServiceClient(client_options=opts)\n\
+          \    name = client.processor_path(\n        documentai_project_id, documentai_location,\
+          \ documentai_processor_id\n    )\n\n    with open(pdf.path, \"rb\") as file:\n\
+          \        content = file.read()\n\n    raw_document = documentai.RawDocument(content=content,\
+          \ mime_type=MIME_TYPE)\n    request = documentai.ProcessRequest(name=name,\
+          \ raw_document=raw_document)\n    result = client.process_document(request=request)\n\
+          \    document = result.document\n\n    with open(text.path, \"w\") as file:\n\
+          \        file.write(document.text)\n    text.metadata[\"mimeType\"] = \"\
+          text/plain\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: parse-pdf-google
+root:
+  dag:
+    outputs:
+      artifacts:
+        text:
+          artifactSelectors:
+          - outputArtifactKey: text
+            producerSubtask: parse-pdf-google
+    tasks:
+      parse-pdf-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-parse-pdf-google
+        inputs:
+          artifacts:
+            pdf:
+              componentInputArtifact: pdf
+          parameters:
+            documentai_location:
+              componentInputParameter: documentai_location
+            documentai_processor_id:
+              componentInputParameter: documentai_processor_id
+            documentai_project_id:
+              componentInputParameter: documentai_project_id
+        taskInfo:
+          name: parse-pdf-google
+  inputDefinitions:
+    artifacts:
+      pdf:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      documentai_location:
+        defaultValue: us
+        isOptional: true
+        parameterType: STRING
+      documentai_processor_id:
+        parameterType: STRING
+      documentai_project_id:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      text:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

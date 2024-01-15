@@ -1,0 +1,161 @@
+# PIPELINE DEFINITION
+# Name: transcribe-audio-google
+# Inputs:
+#    audio: system.Artifact
+#    audio_channel_count: int [Default: 2.0]
+#    language_code: str [Default: 'en-US']
+#    long_running: bool [Default: True]
+#    sample_rate_hertz: int [Default: 48000.0]
+#    speech_to_text_model: str [Default: 'video']
+# Outputs:
+#    transcript: system.Artifact
+components:
+  comp-transcribe-audio-google:
+    executorLabel: exec-transcribe-audio-google
+    inputDefinitions:
+      artifacts:
+        audio:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        audio_channel_count:
+          defaultValue: 2.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        language_code:
+          defaultValue: en-US
+          isOptional: true
+          parameterType: STRING
+        long_running:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        sample_rate_hertz:
+          defaultValue: 48000.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        speech_to_text_model:
+          defaultValue: video
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        transcript:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-transcribe-audio-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - transcribe_audio_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-speech'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef transcribe_audio_google(\n    audio: Input[Artifact],\n    transcript:\
+          \ Output[Artifact],\n    audio_channel_count: int = 2,\n    sample_rate_hertz:\
+          \ int = 48000,\n    language_code: str = \"en-US\",\n    speech_to_text_model:\
+          \ str = \"video\",\n    long_running: bool = True,  # Required for videos\
+          \ longer than a minute\n):\n    import json\n    import os\n    import re\n\
+          \n    from google.cloud import speech\n\n    client = speech.SpeechClient()\n\
+          \n    audio_data = speech.RecognitionAudio(uri=audio.uri)\n\n    config\
+          \ = speech.RecognitionConfig(\n        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,\n\
+          \        sample_rate_hertz=sample_rate_hertz,\n        language_code=language_code,\n\
+          \        audio_channel_count=audio_channel_count,\n        model=speech_to_text_model,\n\
+          \    )\n\n    if long_running:\n        operation = client.long_running_recognize(config=config,\
+          \ audio=audio_data)\n        response = operation.result()\n    else:\n\
+          \        response = client.recognize(config=config, audio=audio)\n\n   \
+          \ with open(transcript.path, \"w\") as file:\n        for result in response.results:\n\
+          \            file.write(result.alternatives[0].transcript + \"\\n\")\n\n\
+          \    transcript.metadata[\"mimeType\"] = \"text/plain\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: transcribe-audio-google
+root:
+  dag:
+    outputs:
+      artifacts:
+        transcript:
+          artifactSelectors:
+          - outputArtifactKey: transcript
+            producerSubtask: transcribe-audio-google
+    tasks:
+      transcribe-audio-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-transcribe-audio-google
+        inputs:
+          artifacts:
+            audio:
+              componentInputArtifact: audio
+          parameters:
+            audio_channel_count:
+              componentInputParameter: audio_channel_count
+            language_code:
+              componentInputParameter: language_code
+            long_running:
+              componentInputParameter: long_running
+            sample_rate_hertz:
+              componentInputParameter: sample_rate_hertz
+            speech_to_text_model:
+              componentInputParameter: speech_to_text_model
+        taskInfo:
+          name: transcribe-audio-google
+  inputDefinitions:
+    artifacts:
+      audio:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      audio_channel_count:
+        defaultValue: 2.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      language_code:
+        defaultValue: en-US
+        isOptional: true
+        parameterType: STRING
+      long_running:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      sample_rate_hertz:
+        defaultValue: 48000.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      speech_to_text_model:
+        defaultValue: video
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      transcript:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

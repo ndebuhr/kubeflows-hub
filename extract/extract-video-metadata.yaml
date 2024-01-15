@@ -1,0 +1,92 @@
+# PIPELINE DEFINITION
+# Name: extract-video-metadata
+# Inputs:
+#    video: system.Artifact
+# Outputs:
+#    metadata: system.Artifact
+components:
+  comp-extract-video-metadata:
+    executorLabel: exec-extract-video-metadata
+    inputDefinitions:
+      artifacts:
+        video:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        metadata:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-extract-video-metadata:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - extract_video_metadata
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'av' && \"$0\"\
+          \ \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef extract_video_metadata(\n    video: Input[Artifact],\n    metadata:\
+          \ Output[Artifact],\n):\n    import av\n\n    container = av.open(video.path)\n\
+          \n    video_stream = next(s for s in container.streams if s.type == \"video\"\
+          )\n\n    with open(metadata.path, \"w\") as f:\n        json.dump(video_stream,\
+          \ f)\n    metadata.metadata[\"mimeType\"] = \"application/json\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: extract-video-metadata
+root:
+  dag:
+    outputs:
+      artifacts:
+        metadata:
+          artifactSelectors:
+          - outputArtifactKey: metadata
+            producerSubtask: extract-video-metadata
+    tasks:
+      extract-video-metadata:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-extract-video-metadata
+        inputs:
+          artifacts:
+            video:
+              componentInputArtifact: video
+        taskInfo:
+          name: extract-video-metadata
+  inputDefinitions:
+    artifacts:
+      video:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+  outputDefinitions:
+    artifacts:
+      metadata:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

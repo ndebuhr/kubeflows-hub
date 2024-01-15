@@ -1,0 +1,122 @@
+# PIPELINE DEFINITION
+# Name: split-pdf-by-pages
+# Inputs:
+#    batch_size_pages: int [Default: 1.0]
+#    output_filepath_template: str [Default: '/tmp/batch-%d.pdf']
+#    pdf: system.Artifact
+# Outputs:
+#    Output: list
+components:
+  comp-split-pdf-by-pages:
+    executorLabel: exec-split-pdf-by-pages
+    inputDefinitions:
+      artifacts:
+        pdf:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        batch_size_pages:
+          defaultValue: 1.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        output_filepath_template:
+          defaultValue: /tmp/batch-%d.pdf
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: LIST
+deploymentSpec:
+  executors:
+    exec-split-pdf-by-pages:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_pdf_by_pages
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pypdf2==2.12.1'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_pdf_by_pages(\n    pdf: Input[Artifact],\n    output_filepath_template:\
+          \ str = \"/tmp/batch-%d.pdf\",\n    batch_size_pages: int = 1,\n) -> List[str]:\n\
+          \    import os\n    import PyPDF2\n\n    batch_files = []\n    with open(pdf.path,\
+          \ \"rb\") as file:\n        pdf_reader = PyPDF2.PdfFileReader(file)\n  \
+          \      total_pages = pdf_reader.numPages\n\n        for i in range(0, total_pages,\
+          \ batch_size_pages):\n            pdf_writer = PyPDF2.PdfFileWriter()\n\
+          \            output_filepath = output_filepath_template % page_number\n\n\
+          \            for page_number in range(i, min(i + batch_size_pages, total_pages)):\n\
+          \                print(f\"Exporting page {page_number} to {output_file_path}\"\
+          )\n                pdf_page = pdf_reader.getPage(page_number)\n        \
+          \        pdf_writer.addPage(pdf_page)\n\n            with open(output_filepath,\
+          \ \"wb\") as output_file:\n                pdf_writer.write(output_file)\n\
+          \            batch_files.append(output_filepath)\n\n    return batch_files\n\
+          \n"
+        image: python:3.11
+pipelineInfo:
+  name: split-pdf-by-pages
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: split-pdf-by-pages
+    tasks:
+      split-pdf-by-pages:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-pdf-by-pages
+        inputs:
+          artifacts:
+            pdf:
+              componentInputArtifact: pdf
+          parameters:
+            batch_size_pages:
+              componentInputParameter: batch_size_pages
+            output_filepath_template:
+              componentInputParameter: output_filepath_template
+        taskInfo:
+          name: split-pdf-by-pages
+  inputDefinitions:
+    artifacts:
+      pdf:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      batch_size_pages:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      output_filepath_template:
+        defaultValue: /tmp/batch-%d.pdf
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: LIST
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

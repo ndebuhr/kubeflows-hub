@@ -1,0 +1,131 @@
+# PIPELINE DEFINITION
+# Name: write-embeddings-elasticsearch
+# Inputs:
+#    create_index: bool [Default: True]
+#    elasticsearch_hosts: list
+#    elasticsearch_index: str
+#    elasticsearch_password: str
+#    elasticsearch_username: str
+#    embedding_dimension: int
+#    embeddings: system.Artifact
+components:
+  comp-write-embeddings-elasticsearch:
+    executorLabel: exec-write-embeddings-elasticsearch
+    inputDefinitions:
+      artifacts:
+        embeddings:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        create_index:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        elasticsearch_hosts:
+          parameterType: LIST
+        elasticsearch_index:
+          parameterType: STRING
+        elasticsearch_password:
+          parameterType: STRING
+        elasticsearch_username:
+          parameterType: STRING
+        embedding_dimension:
+          parameterType: NUMBER_INTEGER
+deploymentSpec:
+  executors:
+    exec-write-embeddings-elasticsearch:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - write_embeddings_elasticsearch
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'elasticsearch'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef write_embeddings_elasticsearch(\n    embeddings: Input[Artifact],\n\
+          \    embedding_dimension: int,\n    elasticsearch_hosts: List[str],\n  \
+          \  elasticsearch_username: str,\n    elasticsearch_password: str,\n    elasticsearch_index:\
+          \ str,\n    create_index: bool = True,\n):\n    from elasticsearch import\
+          \ Elasticsearch\n\n    es = Elasticsearch(\n        hosts=elasticsearch_hosts,\n\
+          \        basic_auth=(elasticsearch_username, elasticsearch_password),\n\
+          \    )\n\n    mapping = {\n        \"mappings\": {\n            \"properties\"\
+          : {\n                \"embedding\": {\"type\": \"dense_vector\", \"dims\"\
+          : embedding_dimension}\n            }\n        }\n    }\n\n    if create_index:\n\
+          \        es.indices.create(index=elasticsearch_index, body=mapping)\n\n\
+          \    with open(embeddings.path, \"r\") as file:\n        for line in file:\n\
+          \            embedding = json.loads(line)\n            es.index(\n     \
+          \           index=elasticsearch_index,\n                id=embedding[\"\
+          id\"],\n                body={\"embedding\": embedding[\"embedding\"]},\n\
+          \            )\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: write-embeddings-elasticsearch
+root:
+  dag:
+    tasks:
+      write-embeddings-elasticsearch:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-write-embeddings-elasticsearch
+        inputs:
+          artifacts:
+            embeddings:
+              componentInputArtifact: embeddings
+          parameters:
+            create_index:
+              componentInputParameter: create_index
+            elasticsearch_hosts:
+              componentInputParameter: elasticsearch_hosts
+            elasticsearch_index:
+              componentInputParameter: elasticsearch_index
+            elasticsearch_password:
+              componentInputParameter: elasticsearch_password
+            elasticsearch_username:
+              componentInputParameter: elasticsearch_username
+            embedding_dimension:
+              componentInputParameter: embedding_dimension
+        taskInfo:
+          name: write-embeddings-elasticsearch
+  inputDefinitions:
+    artifacts:
+      embeddings:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      create_index:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      elasticsearch_hosts:
+        parameterType: LIST
+      elasticsearch_index:
+        parameterType: STRING
+      elasticsearch_password:
+        parameterType: STRING
+      elasticsearch_username:
+        parameterType: STRING
+      embedding_dimension:
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

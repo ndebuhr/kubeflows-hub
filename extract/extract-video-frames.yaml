@@ -1,0 +1,131 @@
+# PIPELINE DEFINITION
+# Name: extract-video-frames
+# Inputs:
+#    frame_filepath_template: str [Default: '/tmp/frame-%d.png']
+#    frame_offset: int [Default: 0.0]
+#    frame_sampling: int [Default: 1.0]
+#    video: system.Artifact
+# Outputs:
+#    Output: list
+components:
+  comp-extract-video-frames:
+    executorLabel: exec-extract-video-frames
+    inputDefinitions:
+      artifacts:
+        video:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        frame_filepath_template:
+          defaultValue: /tmp/frame-%d.png
+          isOptional: true
+          parameterType: STRING
+        frame_offset:
+          defaultValue: 0.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        frame_sampling:
+          defaultValue: 1.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: LIST
+deploymentSpec:
+  executors:
+    exec-extract-video-frames:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - extract_video_frames
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'opencv-python-headless'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef extract_video_frames(\n    video: Input[Artifact],\n    frame_filepath_template:\
+          \ str = \"/tmp/frame-%d.png\",\n    frame_sampling: int = 1,  # extract\
+          \ every nth frame\n    frame_offset: int = 0,  # set an offset for the first\
+          \ extraction\n) -> List[str]:\n    import cv2\n\n    cap = cv2.VideoCapture(video.path)\n\
+          \    fps = cap.get(cv2.CAP_PROP_FPS)\n\n    if not cap.isOpened():\n   \
+          \     raise Exception(f\"Could not open video: {video.uri}\")\n\n    frames\
+          \ = []\n    for i in range(\n        frame_offset, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),\
+          \ frame_sampling\n    ):\n        cap.set(cv2.CAP_PROP_POS_FRAMES, i)\n\
+          \        ret, frame = cap.read()\n\n        if ret:\n            cv2.imwrite(frame_filepath_template\
+          \ % i, frame)\n            frames.append(frame_filepath_template % i)\n\
+          \        else:\n            raise Excaption(f\"Could not read frame: {i}\"\
+          )\n\n    cap.release()\n\n    return frames\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: extract-video-frames
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: extract-video-frames
+    tasks:
+      extract-video-frames:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-extract-video-frames
+        inputs:
+          artifacts:
+            video:
+              componentInputArtifact: video
+          parameters:
+            frame_filepath_template:
+              componentInputParameter: frame_filepath_template
+            frame_offset:
+              componentInputParameter: frame_offset
+            frame_sampling:
+              componentInputParameter: frame_sampling
+        taskInfo:
+          name: extract-video-frames
+  inputDefinitions:
+    artifacts:
+      video:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      frame_filepath_template:
+        defaultValue: /tmp/frame-%d.png
+        isOptional: true
+        parameterType: STRING
+      frame_offset:
+        defaultValue: 0.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      frame_sampling:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: LIST
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

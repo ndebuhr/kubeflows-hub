@@ -1,0 +1,149 @@
+# PIPELINE DEFINITION
+# Name: calculate-nearest-neighbors-google
+# Inputs:
+#    embeddings: system.Artifact
+#    nearest_neighbor_count: int [Default: 4.0]
+#    vector_search_deployed_index_id: str
+#    vector_search_index_endpoint_id: str
+# Outputs:
+#    Output: str
+#    nearest_neighbors: system.Artifact
+components:
+  comp-calculate-nearest-neighbors-google:
+    executorLabel: exec-calculate-nearest-neighbors-google
+    inputDefinitions:
+      artifacts:
+        embeddings:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        nearest_neighbor_count:
+          defaultValue: 4.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        vector_search_deployed_index_id:
+          parameterType: STRING
+        vector_search_index_endpoint_id:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        nearest_neighbors:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-calculate-nearest-neighbors-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - calculate_nearest_neighbors_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef calculate_nearest_neighbors_google(\n    embeddings: Input[Artifact],\n\
+          \    nearest_neighbors: Output[Artifact],\n    vector_search_index_endpoint_id:\
+          \ str,\n    vector_search_deployed_index_id: str,\n    nearest_neighbor_count:\
+          \ int = 4,\n) -> str:\n    import json\n\n    from google.cloud import aiplatform\n\
+          \n    similarity_engine = aiplatform.MatchingEngineIndexEndpoint(\n    \
+          \    index_endpoint_name=vector_search_index_endpoint_id\n    )\n\n    embeddings\
+          \ = []\n    with open(embeddings.path, \"r\") as file:\n        for line\
+          \ in file:\n            embeddings.append(json.loads(line))\n\n    # Batch\
+          \ into groups of 5\n    for i in range(0, len(embeddings), 5):\n       \
+          \ batch = [embedding[\"embedding\"] for embedding in embeddings[i : i +\
+          \ 5]]\n        responses = similarity_engine.match(\n            deployed_index_id=vector_search_deployed_index_id,\n\
+          \            queries=batch,\n            num_neighbors=nearest_neighbor_count,\n\
+          \        )\n\n        with open(nearest_neighbors.path, \"w\") as file:\n\
+          \            for j in range(i, i + 5):\n                file.write(\n  \
+          \                  json.dumps(\n                        {\n            \
+          \                \"id\": embeddings[i][\"id\"],\n                      \
+          \      \"neighbors\": [\n                                {\"id\": neighbor.id,\
+          \ \"distance\": neighbor.distance}\n                                for\
+          \ neighbor in responses[j]\n                            ],\n           \
+          \             }\n                    )\n                    + \"\\n\"\n\
+          \                )\n\n    nearest_neighbors.metadata[\"mimeType\"] = \"\
+          application/jsonl\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: calculate-nearest-neighbors-google
+root:
+  dag:
+    outputs:
+      artifacts:
+        nearest_neighbors:
+          artifactSelectors:
+          - outputArtifactKey: nearest_neighbors
+            producerSubtask: calculate-nearest-neighbors-google
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: calculate-nearest-neighbors-google
+    tasks:
+      calculate-nearest-neighbors-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-calculate-nearest-neighbors-google
+        inputs:
+          artifacts:
+            embeddings:
+              componentInputArtifact: embeddings
+          parameters:
+            nearest_neighbor_count:
+              componentInputParameter: nearest_neighbor_count
+            vector_search_deployed_index_id:
+              componentInputParameter: vector_search_deployed_index_id
+            vector_search_index_endpoint_id:
+              componentInputParameter: vector_search_index_endpoint_id
+        taskInfo:
+          name: calculate-nearest-neighbors-google
+  inputDefinitions:
+    artifacts:
+      embeddings:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      nearest_neighbor_count:
+        defaultValue: 4.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      vector_search_deployed_index_id:
+        parameterType: STRING
+      vector_search_index_endpoint_id:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      nearest_neighbors:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      Output:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

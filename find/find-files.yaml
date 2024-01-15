@@ -1,0 +1,90 @@
+# PIPELINE DEFINITION
+# Name: find-files
+# Inputs:
+#    directory: str
+#    regexp: str
+# Outputs:
+#    Output: list
+components:
+  comp-find-files:
+    executorLabel: exec-find-files
+    inputDefinitions:
+      parameters:
+        directory:
+          parameterType: STRING
+        regexp:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: LIST
+deploymentSpec:
+  executors:
+    exec-find-files:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - find_files
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef find_files(directory: str, regexp: str) -> List[str]:\n    import\
+          \ os\n    import re\n\n    matching_files = []\n    for root, dirs, files\
+          \ in os.walk(directory):\n        for file in files:\n            if re.match(regexp,\
+          \ file) and not file.startswith(\".\"):\n                matching_files.append(os.path.join(root,\
+          \ file))\n\n    return matching_files\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: find-files
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: find-files
+    tasks:
+      find-files:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-find-files
+        inputs:
+          parameters:
+            directory:
+              componentInputParameter: directory
+            regexp:
+              componentInputParameter: regexp
+        taskInfo:
+          name: find-files
+  inputDefinitions:
+    parameters:
+      directory:
+        parameterType: STRING
+      regexp:
+        parameterType: STRING
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: LIST
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

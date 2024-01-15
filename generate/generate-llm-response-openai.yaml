@@ -1,0 +1,117 @@
+# PIPELINE DEFINITION
+# Name: generate-llm-response-openai
+# Inputs:
+#    model: str [Default: 'gpt-4']
+#    openai_api_key: str
+#    prompt: system.Artifact
+# Outputs:
+#    response: system.Artifact
+components:
+  comp-generate-llm-response-openai:
+    executorLabel: exec-generate-llm-response-openai
+    inputDefinitions:
+      artifacts:
+        prompt:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        model:
+          defaultValue: gpt-4
+          isOptional: true
+          parameterType: STRING
+        openai_api_key:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        response:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-generate-llm-response-openai:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_llm_response_openai
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'openai' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_llm_response_openai(\n    prompt: Input[Artifact],\n\
+          \    response: Output[Artifact],\n    openai_api_key: str,\n    model: str\
+          \ = \"gpt-4\",\n):\n    import json\n    import tiktoken\n    from openai\
+          \ import OpenAI\n\n    client = OpenAI(api_key=openai_api_key)\n\n    with\
+          \ open(prompt.path, \"r\") as file:\n        content = file.read()\n\n \
+          \   completion = client.chat.completions.create(\n        model=model, messages=[{\"\
+          role\": \"user\", \"content\": content}]\n    )\n\n    with open(response.path,\
+          \ \"w\") as file:\n        file.write(completion.choices[0].message.content)\n\
+          \n    embeddings.metadata[\"mimeType\"] = \"text/plain\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: generate-llm-response-openai
+root:
+  dag:
+    outputs:
+      artifacts:
+        response:
+          artifactSelectors:
+          - outputArtifactKey: response
+            producerSubtask: generate-llm-response-openai
+    tasks:
+      generate-llm-response-openai:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-llm-response-openai
+        inputs:
+          artifacts:
+            prompt:
+              componentInputArtifact: prompt
+          parameters:
+            model:
+              componentInputParameter: model
+            openai_api_key:
+              componentInputParameter: openai_api_key
+        taskInfo:
+          name: generate-llm-response-openai
+  inputDefinitions:
+    artifacts:
+      prompt:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      model:
+        defaultValue: gpt-4
+        isOptional: true
+        parameterType: STRING
+      openai_api_key:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      response:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

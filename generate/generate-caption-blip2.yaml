@@ -1,0 +1,115 @@
+# PIPELINE DEFINITION
+# Name: generate-caption-blip2
+# Inputs:
+#    image: system.Artifact
+#    model: str [Default: 'Salesforce/blip2-opt-2.7b']
+# Outputs:
+#    caption: system.Artifact
+components:
+  comp-generate-caption-blip2:
+    executorLabel: exec-generate-caption-blip2
+    inputDefinitions:
+      artifacts:
+        image:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        model:
+          defaultValue: Salesforce/blip2-opt-2.7b
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        caption:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-generate-caption-blip2:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_caption_blip2
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'transformers'\
+          \ 'torch' 'accelerate' 'Pillow' 'appengine-python-standard' && \"$0\" \"\
+          $@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_caption_blip2(\n    image: Input[Artifact],\n    caption:\
+          \ Output[Artifact],\n    model: str = \"Salesforce/blip2-opt-2.7b\",\n):\n\
+          \    import torch\n\n    from PIL import Image\n    from transformers import\
+          \ Blip2Processor, Blip2ForConditionalGeneration\n\n    device = \"cuda\"\
+          \ if torch.cuda.is_available() else \"cpu\"\n    processor = Blip2Processor.from_pretrained(model)\n\
+          \    model = Blip2ForConditionalGeneration.from_pretrained(\n        model,\
+          \ torch_dtype=torch.float16\n    )\n    model.to(device)\n\n    image_file\
+          \ = Image.open(image.path)\n\n    inputs = processor(images=image_file,\
+          \ return_tensors=\"pt\").to(device, torch.float16)\n\n    generated_ids\
+          \ = model.generate(**inputs)\n    generated_text = processor.batch_decode(generated_ids,\
+          \ skip_special_tokens=True)\n    generated_text = generated_text[0].strip()\n\
+          \n    with open(caption.path, \"w\") as file:\n        file.write(generated_text)\n\
+          \    caption.metadata[\"mimeType\"] = \"text/plain\"\n\n"
+        image: pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+pipelineInfo:
+  name: generate-caption-blip2
+root:
+  dag:
+    outputs:
+      artifacts:
+        caption:
+          artifactSelectors:
+          - outputArtifactKey: caption
+            producerSubtask: generate-caption-blip2
+    tasks:
+      generate-caption-blip2:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-caption-blip2
+        inputs:
+          artifacts:
+            image:
+              componentInputArtifact: image
+          parameters:
+            model:
+              componentInputParameter: model
+        taskInfo:
+          name: generate-caption-blip2
+  inputDefinitions:
+    artifacts:
+      image:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      model:
+        defaultValue: Salesforce/blip2-opt-2.7b
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      caption:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

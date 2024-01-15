@@ -1,0 +1,121 @@
+# PIPELINE DEFINITION
+# Name: count-tokens-openai
+# Inputs:
+#    model_name: str [Default: 'gpt-4']
+#    text: system.Artifact
+# Outputs:
+#    Output: int
+#    token_count: system.Artifact
+components:
+  comp-count-tokens-openai:
+    executorLabel: exec-count-tokens-openai
+    inputDefinitions:
+      artifacts:
+        text:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        model_name:
+          defaultValue: gpt-4
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        token_count:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: NUMBER_INTEGER
+deploymentSpec:
+  executors:
+    exec-count-tokens-openai:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - count_tokens_openai
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'tiktoken' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef count_tokens_openai(\n    text: Input[Artifact],\n    token_count:\
+          \ Output[Artifact],\n    model_name: str = \"gpt-4\",\n) -> int:\n    import\
+          \ tiktoken\n\n    encoding = tiktoken.encoding_for_model(model_name)\n\n\
+          \    with open(text.path, \"r\") as file:\n        contents = file.read()\n\
+          \        tokens = encoding.encode(contents)\n        token_count = str(len(tokens))\n\
+          \n    with open(token_count.path, \"w\") as file:\n        file.write(token_count)\n\
+          \n    token_count.metadata[\"mimeType\"] = \"text/plain\"\n\n    return\
+          \ token_count\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: count-tokens-openai
+root:
+  dag:
+    outputs:
+      artifacts:
+        token_count:
+          artifactSelectors:
+          - outputArtifactKey: token_count
+            producerSubtask: count-tokens-openai
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: count-tokens-openai
+    tasks:
+      count-tokens-openai:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-count-tokens-openai
+        inputs:
+          artifacts:
+            text:
+              componentInputArtifact: text
+          parameters:
+            model_name:
+              componentInputParameter: model_name
+        taskInfo:
+          name: count-tokens-openai
+  inputDefinitions:
+    artifacts:
+      text:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      model_name:
+        defaultValue: gpt-4
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      token_count:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      Output:
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

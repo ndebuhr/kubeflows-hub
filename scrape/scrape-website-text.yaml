@@ -1,0 +1,91 @@
+# PIPELINE DEFINITION
+# Name: scrape-website-text
+# Inputs:
+#    website_uri: str
+# Outputs:
+#    html: system.Artifact
+components:
+  comp-scrape-website-text:
+    executorLabel: exec-scrape-website-text
+    inputDefinitions:
+      parameters:
+        website_uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        html:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-scrape-website-text:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - scrape_website_text
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'requests' 'BeautifulSoup4'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef scrape_website_text(\n    website_uri: str,\n    html: Output[Artifact],\n\
+          ):\n    import requests\n    from bs4 import BeautifulSoup\n\n    response\
+          \ = requests.get(webpage_uri)\n\n    if response.status_code == 200:\n \
+          \       webpage = response.text\n        soup = BeautifulSoup(webpage, \"\
+          html.parser\")\n        text = soup.get_text()\n    else:\n        raise\
+          \ Exception(f\"Failed to scrape {webpage_uri}.\")\n\n    with open(html.path,\
+          \ \"w\") as file:\n        file.write(text)\n\n    html.metadata[\"mimeType\"\
+          ] = \"text/html\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: scrape-website-text
+root:
+  dag:
+    outputs:
+      artifacts:
+        html:
+          artifactSelectors:
+          - outputArtifactKey: html
+            producerSubtask: scrape-website-text
+    tasks:
+      scrape-website-text:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-scrape-website-text
+        inputs:
+          parameters:
+            website_uri:
+              componentInputParameter: website_uri
+        taskInfo:
+          name: scrape-website-text
+  inputDefinitions:
+    parameters:
+      website_uri:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      html:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

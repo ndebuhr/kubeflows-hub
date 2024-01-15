@@ -1,0 +1,129 @@
+# PIPELINE DEFINITION
+# Name: extract-video-intelligence
+# Inputs:
+#    features: list [Default: ['TEXT_DETECTION']]
+#    timeout: int [Default: 7200.0]
+#    video: system.Artifact
+# Outputs:
+#    objects: system.Artifact
+components:
+  comp-extract-video-intelligence:
+    executorLabel: exec-extract-video-intelligence
+    inputDefinitions:
+      artifacts:
+        video:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        features:
+          defaultValue:
+          - TEXT_DETECTION
+          isOptional: true
+          parameterType: LIST
+        timeout:
+          defaultValue: 7200.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        objects:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-extract-video-intelligence:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - extract_video_intelligence
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-videointelligence'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef extract_video_intelligence(\n    video: Input[Artifact],\n  \
+          \  objects: Output[Artifact],\n    timeout: int = 7200,\n    features: List[str]\
+          \ = [\"TEXT_DETECTION\"],\n):\n    from google.cloud import videointelligence\n\
+          \n    video_client = videointelligence.VideoIntelligenceServiceClient()\n\
+          \n    features = []\n    if \"OBJECT_TRACKING\" in features:\n        features.append(videointelligence.Feature.OBJECT_TRACKING)\n\
+          \    if \"SHOT_CHANGE_DETECTION\":\n        features.append(videointelligence.Feature.SHOT_CHANGE_DETECTION)\n\
+          \    if \"TEXT_DETECTION\":\n        features.append(videointelligence.Feature.TEXT_DETECTION)\n\
+          \    if \"LABEL_DETECTION\":\n        features.append(videointelligence.Feature.LABEL_DETECTION)\n\
+          \    if \"EXPLICIT_CONTENT_DETECTION\":\n        features.append(videointelligence.Feature.EXPLICIT_CONTENT_DETECTION)\n\
+          \n    operation = video_client.annotate_video(\n        request={\n    \
+          \        \"features\": features,\n            \"input_uri\": video.uri,\n\
+          \        }\n    )\n\n    result = operation.result(timeout=timeout)\n\n\
+          \    object_annotations = result.annotation_results[0].object_annotations\n\
+          \n    with open(objects.path, \"w\") as f:\n        json.dump(object_annotations,\
+          \ f)\n    objects.metadata[\"mimeType\"] = \"application/json\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: extract-video-intelligence
+root:
+  dag:
+    outputs:
+      artifacts:
+        objects:
+          artifactSelectors:
+          - outputArtifactKey: objects
+            producerSubtask: extract-video-intelligence
+    tasks:
+      extract-video-intelligence:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-extract-video-intelligence
+        inputs:
+          artifacts:
+            video:
+              componentInputArtifact: video
+          parameters:
+            features:
+              componentInputParameter: features
+            timeout:
+              componentInputParameter: timeout
+        taskInfo:
+          name: extract-video-intelligence
+  inputDefinitions:
+    artifacts:
+      video:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      features:
+        defaultValue:
+        - TEXT_DETECTION
+        isOptional: true
+        parameterType: LIST
+      timeout:
+        defaultValue: 7200.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+  outputDefinitions:
+    artifacts:
+      objects:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

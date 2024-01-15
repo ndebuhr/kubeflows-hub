@@ -1,0 +1,156 @@
+# PIPELINE DEFINITION
+# Name: split-on-tokens-openai
+# Inputs:
+#    max_tokens: int [Default: 1024.0]
+#    model: str [Default: 'gpt-4']
+#    output_filepath_template: str [Default: '/tmp/split-%d.txt']
+#    split_on: str [Default: '
+']
+#    text: system.Artifact
+# Outputs:
+#    Output: list
+components:
+  comp-split-on-tokens-openai:
+    executorLabel: exec-split-on-tokens-openai
+    inputDefinitions:
+      artifacts:
+        text:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        max_tokens:
+          defaultValue: 1024.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        model:
+          defaultValue: gpt-4
+          isOptional: true
+          parameterType: STRING
+        output_filepath_template:
+          defaultValue: /tmp/split-%d.txt
+          isOptional: true
+          parameterType: STRING
+        split_on:
+          defaultValue: '
+
+            '
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: LIST
+deploymentSpec:
+  executors:
+    exec-split-on-tokens-openai:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_on_tokens_openai
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'openai' 'tiktoken'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_on_tokens_openai(\n    text: Input[Artifact],\n    output_filepath_template:\
+          \ str = \"/tmp/split-%d.txt\",\n    model: str = \"gpt-4\",\n    split_on:\
+          \ str = \"\\n\",\n    max_tokens: int = 1024,\n) -> List[str]:\n    import\
+          \ tiktoken\n    import openai\n\n    openai.api_key = openai_api_key\n\n\
+          \    encoding = tiktoken.encoding_for_model(model)\n\n    with open(text.path,\
+          \ \"r\") as file:\n        contents = file.read()\n        if split_on:\n\
+          \            texts = contents.split(split_on)\n        else:  # by default,\
+          \ split by word\n            texts = contents.split()\n\n    token_counts\
+          \ = {}\n    for text in texts:\n        token_counts[text] = len(encoding.encode(text))\n\
+          \n    # Batch the texts based on token count\n    # This is a greedy algorithm,\
+          \ so it will not be optimal\n    batches = []\n    in_progress_batch = {token_count:\
+          \ 0, contents: []}\n    for text in token_counts.keys():\n        if in_progress[\"\
+          token_count\"] + token_counts[text] < max_tokens:\n            in_progress_batch[\"\
+          contents\"].append(text)\n            in_progress_batch[\"token_count\"\
+          ] += token_counts[text]\n        else:\n            batches.append(in_progress_batch)\n\
+          \            in_progress_batch = {token_count: token_counts[text], contents:\
+          \ [text]}\n\n    output_filepaths = []\n    for i, batch in enumerate(batches):\n\
+          \        output_filepath = output_filepath_template % i\n        with open(output_filepath,\
+          \ \"w\") as file:\n            file.write(split_on.join(batch[\"contents\"\
+          ]))\n        output_filepaths.append(output_filepath)\n\n    return output_filepaths\n\
+          \n"
+        image: python:3.11
+pipelineInfo:
+  name: split-on-tokens-openai
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: split-on-tokens-openai
+    tasks:
+      split-on-tokens-openai:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-on-tokens-openai
+        inputs:
+          artifacts:
+            text:
+              componentInputArtifact: text
+          parameters:
+            max_tokens:
+              componentInputParameter: max_tokens
+            model:
+              componentInputParameter: model
+            output_filepath_template:
+              componentInputParameter: output_filepath_template
+            split_on:
+              componentInputParameter: split_on
+        taskInfo:
+          name: split-on-tokens-openai
+  inputDefinitions:
+    artifacts:
+      text:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      max_tokens:
+        defaultValue: 1024.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      model:
+        defaultValue: gpt-4
+        isOptional: true
+        parameterType: STRING
+      output_filepath_template:
+        defaultValue: /tmp/split-%d.txt
+        isOptional: true
+        parameterType: STRING
+      split_on:
+        defaultValue: '
+
+          '
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: LIST
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

@@ -1,0 +1,102 @@
+# PIPELINE DEFINITION
+# Name: load-json-into-bigquery
+# Inputs:
+#    data: system.Artifact
+#    dataset_id: str
+#    orient: str [Default: 'records']
+#    table_id: str
+components:
+  comp-load-json-into-bigquery:
+    executorLabel: exec-load-json-into-bigquery
+    inputDefinitions:
+      artifacts:
+        data:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        orient:
+          defaultValue: records
+          isOptional: true
+          parameterType: STRING
+        table_id:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-load-json-into-bigquery:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - load_json_into_bigquery
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery'\
+          \ 'pandas' 'pyarrow' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef load_json_into_bigquery(\n    data: Input[Artifact],\n    dataset_id:\
+          \ str,\n    table_id: str,\n    orient: str = \"records\",\n):\n    import\
+          \ json\n    import pandas as pd\n    from google.cloud import bigquery\n\
+          \n    client = bigquery.Client()\n\n    df = pd.read_json(data.path, orient=orient)\n\
+          \n    dataset_ref = client.dataset(dataset_id)\n    table_ref = dataset_ref.table(table_id)\n\
+          \n    if not df.empty:\n        job = client.load_table_from_dataframe(df,\
+          \ table_ref)\n        job.result()\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: load-json-into-bigquery
+root:
+  dag:
+    tasks:
+      load-json-into-bigquery:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-load-json-into-bigquery
+        inputs:
+          artifacts:
+            data:
+              componentInputArtifact: data
+          parameters:
+            dataset_id:
+              componentInputParameter: dataset_id
+            orient:
+              componentInputParameter: orient
+            table_id:
+              componentInputParameter: table_id
+        taskInfo:
+          name: load-json-into-bigquery
+  inputDefinitions:
+    artifacts:
+      data:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      dataset_id:
+        parameterType: STRING
+      orient:
+        defaultValue: records
+        isOptional: true
+        parameterType: STRING
+      table_id:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

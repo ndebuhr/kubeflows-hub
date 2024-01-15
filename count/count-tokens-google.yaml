@@ -1,0 +1,121 @@
+# PIPELINE DEFINITION
+# Name: count-tokens-google
+# Inputs:
+#    model_name: str [Default: 'gemini-pro']
+#    text: system.Artifact
+# Outputs:
+#    Output: int
+#    token_count: system.Artifact
+components:
+  comp-count-tokens-google:
+    executorLabel: exec-count-tokens-google
+    inputDefinitions:
+      artifacts:
+        text:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        model_name:
+          defaultValue: gemini-pro
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        token_count:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: NUMBER_INTEGER
+deploymentSpec:
+  executors:
+    exec-count-tokens-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - count_tokens_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef count_tokens_google(\n    text: Input[Artifact],\n    token_count:\
+          \ Output[Artifact],\n    model_name: str = \"gemini-pro\",\n) -> int:\n\
+          \    import vertexai\n    from vertexai.preview.generative_models import\
+          \ GenerativeModel\n\n    vertexai.init()\n\n    model = GenerativeModel(model_name)\n\
+          \n    with open(text.path, \"r\") as file:\n        text = file.read()\n\
+          \        token_count = model.count_tokens(text)\n\n    with open(token_count.path,\
+          \ \"w\") as file:\n        file.write(token_count)\n\n    token_count.metadata[\"\
+          mimeType\"] = \"text/plain\"\n\n    return token_count\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: count-tokens-google
+root:
+  dag:
+    outputs:
+      artifacts:
+        token_count:
+          artifactSelectors:
+          - outputArtifactKey: token_count
+            producerSubtask: count-tokens-google
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: count-tokens-google
+    tasks:
+      count-tokens-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-count-tokens-google
+        inputs:
+          artifacts:
+            text:
+              componentInputArtifact: text
+          parameters:
+            model_name:
+              componentInputParameter: model_name
+        taskInfo:
+          name: count-tokens-google
+  inputDefinitions:
+    artifacts:
+      text:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      model_name:
+        defaultValue: gemini-pro
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      token_count:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      Output:
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

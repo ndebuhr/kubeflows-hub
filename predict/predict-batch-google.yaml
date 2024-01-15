@@ -1,0 +1,115 @@
+# PIPELINE DEFINITION
+# Name: predict-batch-google
+# Inputs:
+#    batch_data: system.Artifact
+#    gcs_destination_prefix: str
+#    job_display_name: str
+#    model: str
+# Outputs:
+#    Output: str
+components:
+  comp-predict-batch-google:
+    executorLabel: exec-predict-batch-google
+    inputDefinitions:
+      artifacts:
+        batch_data:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        gcs_destination_prefix:
+          parameterType: STRING
+        job_display_name:
+          parameterType: STRING
+        model:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-predict-batch-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - predict_batch_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef predict_batch_google(\n    batch_data: Input[Artifact],\n   \
+          \ gcs_destination_prefix: str,\n    model: str,  # projects/PROJECT_NUMBER/locations/REGION/models/MODEL_NUMBER\n\
+          \    job_display_name: str,\n) -> str:\n    classification_model = aiplatform.Model(model)\n\
+          \n    batch_prediction_job = classification_model.batch_predict(\n     \
+          \   job_display_name=job_display_name,\n        gcs_source=batch_data.uri,\n\
+          \        gcs_destination_prefix=gcs_destination_prefix,\n        sync=True,\n\
+          \    )\n\n    batch_prediction_job.wait()\n\n    return batch_prediction_job.output_info.gcs_output_directory\n\
+          \n"
+        image: python:3.11
+pipelineInfo:
+  name: predict-batch-google
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: predict-batch-google
+    tasks:
+      predict-batch-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-predict-batch-google
+        inputs:
+          artifacts:
+            batch_data:
+              componentInputArtifact: batch_data
+          parameters:
+            gcs_destination_prefix:
+              componentInputParameter: gcs_destination_prefix
+            job_display_name:
+              componentInputParameter: job_display_name
+            model:
+              componentInputParameter: model
+        taskInfo:
+          name: predict-batch-google
+  inputDefinitions:
+    artifacts:
+      batch_data:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      gcs_destination_prefix:
+        parameterType: STRING
+      job_display_name:
+        parameterType: STRING
+      model:
+        parameterType: STRING
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0

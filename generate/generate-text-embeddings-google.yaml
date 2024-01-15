@@ -1,0 +1,122 @@
+# PIPELINE DEFINITION
+# Name: generate-text-embeddings-google
+# Inputs:
+#    model: str [Default: 'textembedding-gecko@001']
+#    restricts: list
+#    text_filepaths: list
+# Outputs:
+#    embeddings: system.Artifact
+components:
+  comp-generate-text-embeddings-google:
+    executorLabel: exec-generate-text-embeddings-google
+    inputDefinitions:
+      parameters:
+        model:
+          defaultValue: textembedding-gecko@001
+          isOptional: true
+          parameterType: STRING
+        restricts:
+          isOptional: true
+          parameterType: LIST
+        text_filepaths:
+          parameterType: LIST
+    outputDefinitions:
+      artifacts:
+        embeddings:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-generate-text-embeddings-google:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_text_embeddings_google
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.5.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_text_embeddings_google(\n    text_filepaths: List[str],\n\
+          \    embeddings: Output[Artifact],\n    model: str = \"textembedding-gecko@001\"\
+          ,\n    restricts: List[Dict] = None,\n):\n    import json\n    import os\n\
+          \    from vertexai.preview.language_models import TextEmbeddingModel\n\n\
+          \    model = TextEmbeddingModel.from_pretrained(model)\n\n    # Batch into\
+          \ groups of 5, because that's the maximum batch size for the model\n   \
+          \ for i in range(0, len(text_filepaths), 5):\n        batch = []\n     \
+          \   for text_filepath in text_filepaths[i : i + 5]:\n            with open(text_filepath,\
+          \ \"r\") as file:\n                text = file.read()\n                batch.append(text)\n\
+          \        embedding_results = model.get_embeddings(batch)\n        for text_filepath,\
+          \ embedding_result in zip(\n            text_filepaths[i : i + 5], embedding_results\n\
+          \        ):\n            with open(embeddings.path, \"w\") as file:\n  \
+          \              # The format here is deliberately in alignment with the Vertex\
+          \ AI Vector Search service\n                data = {\n                 \
+          \   \"id\": text_filepath,\n                    \"embedding\": embedding_result.values,\n\
+          \                }\n                if restricts:\n                    data[\"\
+          restricts\"] = restricts\n                json.dump(data + \"\\n\", file)\n\
+          \n    nearest_neighbors.metadata[\"mimeType\"] = \"application/jsonl\"\n\
+          \n"
+        image: python:3.11
+pipelineInfo:
+  name: generate-text-embeddings-google
+root:
+  dag:
+    outputs:
+      artifacts:
+        embeddings:
+          artifactSelectors:
+          - outputArtifactKey: embeddings
+            producerSubtask: generate-text-embeddings-google
+    tasks:
+      generate-text-embeddings-google:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-text-embeddings-google
+        inputs:
+          parameters:
+            model:
+              componentInputParameter: model
+            restricts:
+              componentInputParameter: restricts
+            text_filepaths:
+              componentInputParameter: text_filepaths
+        taskInfo:
+          name: generate-text-embeddings-google
+  inputDefinitions:
+    parameters:
+      model:
+        defaultValue: textembedding-gecko@001
+        isOptional: true
+        parameterType: STRING
+      restricts:
+        isOptional: true
+        parameterType: LIST
+      text_filepaths:
+        parameterType: LIST
+  outputDefinitions:
+    artifacts:
+      embeddings:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.5.0
