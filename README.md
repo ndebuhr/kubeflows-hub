@@ -1,5 +1,6 @@
 # Kubeflows Hub
 
+> Kubeflows Hub is a community-focused, unofficial resource hub for sharing reusable Kubeflow components. With Kubeflows Hub, users can both contribute to and benefit from a growing collection of common, ready-to-use Kubeflow components, streamlining the development process in the machine learning community.
 
 ## Repository Organization
 
