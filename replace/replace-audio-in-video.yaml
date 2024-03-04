@@ -1,0 +1,146 @@
+# PIPELINE DEFINITION
+# Name: replace-audio-in-video
+# Inputs:
+#    audio_codec: str [Default: 'aac']
+#    audio_input: system.Artifact
+#    mime_type: str [Default: 'video/mp4']
+#    video_codec: str [Default: 'libx264']
+#    video_input: system.Artifact
+# Outputs:
+#    video_output: system.Artifact
+components:
+  comp-replace-audio-in-video:
+    executorLabel: exec-replace-audio-in-video
+    inputDefinitions:
+      artifacts:
+        audio_input:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        video_input:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        audio_codec:
+          defaultValue: aac
+          isOptional: true
+          parameterType: STRING
+        mime_type:
+          defaultValue: video/mp4
+          isOptional: true
+          parameterType: STRING
+        video_codec:
+          defaultValue: libx264
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        video_output:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-replace-audio-in-video:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - replace_audio_in_video
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'moviepy' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef replace_audio_in_video(\n    video_input: Input[Artifact],\n\
+          \    audio_input: Input[Artifact],\n    video_output: Output[Artifact],\n\
+          \    video_codec: str = \"libx264\",\n    audio_codec: str = \"aac\",\n\
+          \    mime_type: str = \"video/mp4\"\n):\n    from moviepy.editor import\
+          \ AudioFileClip, VideoFileClip\n\n    # Load the new audio file\n    audio\
+          \ = AudioFileClip(audio_input.path)\n\n    # Load the video file\n    video\
+          \ = VideoFileClip(video_input.path)\n\n    # Replace the audio on the video\n\
+          \    video = video.set_audio(audio)\n\n    # Export the video file\n   \
+          \ video.write_videofile(\n        video_output.path,\n        codec=video_codec,\n\
+          \        audio_codec=audio_codec,\n        temp_audiofile=\"temp-audio.m4a\"\
+          ,\n        remove_temp=True,\n    )\n\n    combined_video.metadata[\"mimeType\"\
+          ] = mime_type\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: replace-audio-in-video
+root:
+  dag:
+    outputs:
+      artifacts:
+        video_output:
+          artifactSelectors:
+          - outputArtifactKey: video_output
+            producerSubtask: replace-audio-in-video
+    tasks:
+      replace-audio-in-video:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-replace-audio-in-video
+        inputs:
+          artifacts:
+            audio_input:
+              componentInputArtifact: audio_input
+            video_input:
+              componentInputArtifact: video_input
+          parameters:
+            audio_codec:
+              componentInputParameter: audio_codec
+            mime_type:
+              componentInputParameter: mime_type
+            video_codec:
+              componentInputParameter: video_codec
+        taskInfo:
+          name: replace-audio-in-video
+  inputDefinitions:
+    artifacts:
+      audio_input:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+      video_input:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      audio_codec:
+        defaultValue: aac
+        isOptional: true
+        parameterType: STRING
+      mime_type:
+        defaultValue: video/mp4
+        isOptional: true
+        parameterType: STRING
+      video_codec:
+        defaultValue: libx264
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      video_output:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0

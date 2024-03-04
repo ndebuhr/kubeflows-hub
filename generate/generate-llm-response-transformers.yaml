@@ -1,0 +1,128 @@
+# PIPELINE DEFINITION
+# Name: generate-llm-response-transformers
+# Inputs:
+#    input_text: system.Artifact
+#    max_length: int [Default: 8192.0]
+#    model_name: str [Default: 'google/gemma-7b-it']
+# Outputs:
+#    output_text: system.Artifact
+components:
+  comp-generate-llm-response-transformers:
+    executorLabel: exec-generate-llm-response-transformers
+    inputDefinitions:
+      artifacts:
+        input_text:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        max_length:
+          defaultValue: 8192.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        model_name:
+          defaultValue: google/gemma-7b-it
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        output_text:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-generate-llm-response-transformers:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_llm_response_transformers
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'torch' 'transformers'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_llm_response_transformers(\n    input_text: Input[Artifact],\n\
+          \    output_text: Output[Artifact],\n    model_name: str = \"google/gemma-7b-it\"\
+          ,\n    max_length: int = 8192,\n):\n    from transformers import AutoModelForCausalLM,\
+          \ AutoTokenizer, pipeline\n    import torch\n\n    with open(input_text.path,\
+          \ \"r\") as file:\n        text = file.read()\n\n    # Set device based\
+          \ on CUDA availability\n    device = \"cuda\" if torch.cuda.is_available()\
+          \ else \"cpu\"\n\n    # Load the model and tokenizer\n    tokenizer = AutoTokenizer.from_pretrained(model_name)\n\
+          \    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)\n\
+          \n    # Tokenize the input text\n    inputs = tokenizer(\n        text,\
+          \ return_tensors=\"pt\", truncation=True, max_length=max_length\n    ).to(device)\n\
+          \n    # Generate outputs\n    outputs = model.generate(\n        **inputs,\
+          \ max_length=max_length, num_return_sequences=1, use_cache=True\n    )\n\
+          \n    # Decode the generated text\n    generated_text = tokenizer.batch_decode(outputs,\
+          \ skip_special_tokens=True)\n\n    with open(output_text.path, \"w\") as\
+          \ file:\n        file.write(generated_text)\n\n    output_text.metadata[\"\
+          mimeType\"] = \"text/plain\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: generate-llm-response-transformers
+root:
+  dag:
+    outputs:
+      artifacts:
+        output_text:
+          artifactSelectors:
+          - outputArtifactKey: output_text
+            producerSubtask: generate-llm-response-transformers
+    tasks:
+      generate-llm-response-transformers:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-llm-response-transformers
+        inputs:
+          artifacts:
+            input_text:
+              componentInputArtifact: input_text
+          parameters:
+            max_length:
+              componentInputParameter: max_length
+            model_name:
+              componentInputParameter: model_name
+        taskInfo:
+          name: generate-llm-response-transformers
+  inputDefinitions:
+    artifacts:
+      input_text:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      max_length:
+        defaultValue: 8192.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      model_name:
+        defaultValue: google/gemma-7b-it
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      output_text:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0

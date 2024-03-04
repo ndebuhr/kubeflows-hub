@@ -157,7 +157,46 @@ def generate_llm_response_openai(
     with open(response.path, "w") as file:
         file.write(completion.choices[0].message.content)
 
-    embeddings.metadata["mimeType"] = "text/plain"
+    response.metadata["mimeType"] = "text/plain"
+
+
+@dsl.component(base_image="python:3.11", packages_to_install=["torch", "transformers"])
+def generate_llm_response_transformers(
+    input_text: Input[Artifact],
+    output_text: Output[Artifact],
+    model_name: str = "google/gemma-7b-it",
+    max_length: int = 8192,
+):
+    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+    import torch
+
+    with open(input_text.path, "r") as file:
+        text = file.read()
+
+    # Set device based on CUDA availability
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Load the model and tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+
+    # Tokenize the input text
+    inputs = tokenizer(
+        text, return_tensors="pt", truncation=True, max_length=max_length
+    ).to(device)
+
+    # Generate outputs
+    outputs = model.generate(
+        **inputs, max_length=max_length, num_return_sequences=1, use_cache=True
+    )
+
+    # Decode the generated text
+    generated_text = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+
+    with open(output_text.path, "w") as file:
+        file.write(generated_text)
+
+    output_text.metadata["mimeType"] = "text/plain"
 
 
 compiler.Compiler().compile(generate_caption_blip2, "generate-caption-blip2.yaml")
@@ -166,4 +205,7 @@ compiler.Compiler().compile(
 )
 compiler.Compiler().compile(
     generate_llm_response_openai, "generate-llm-response-openai.yaml"
+)
+compiler.Compiler().compile(
+    generate_llm_response_transformers, "generate-llm-response-transformers.yaml"
 )

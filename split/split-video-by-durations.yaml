@@ -1,0 +1,148 @@
+# PIPELINE DEFINITION
+# Name: split-video-by-durations
+# Inputs:
+#    audio_codec: str [Default: 'aac']
+#    output_filepath_template: str [Default: '/tmp/part-%d.png']
+#    seconds_per_part: int [Default: 60.0]
+#    video: system.Artifact
+#    video_codec: str [Default: 'libx264']
+# Outputs:
+#    Output: list
+components:
+  comp-split-video-by-durations:
+    executorLabel: exec-split-video-by-durations
+    inputDefinitions:
+      artifacts:
+        video:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        audio_codec:
+          defaultValue: aac
+          isOptional: true
+          parameterType: STRING
+        output_filepath_template:
+          defaultValue: /tmp/part-%d.png
+          isOptional: true
+          parameterType: STRING
+        seconds_per_part:
+          defaultValue: 60.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        video_codec:
+          defaultValue: libx264
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: LIST
+deploymentSpec:
+  executors:
+    exec-split-video-by-durations:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_video_by_durations
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'moviepy' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_video_by_durations(\n    video: Input[Artifact],\n    seconds_per_part:\
+          \ int = 60,\n    output_filepath_template: str = \"/tmp/part-%d.png\",\n\
+          \    video_codec: str = \"libx264\",\n    audio_codec: str = \"aac\",\n\
+          ) -> List[str]:\n    from moviepy.editor import VideoFileClip\n    import\
+          \ math\n\n    # Load the video file\n    video = VideoFileClip(video.path)\n\
+          \n    # Calculate the duration of the video in seconds\n    duration = int(video.duration)\n\
+          \n    # Calculate the number of parts the video will be split into\n   \
+          \ parts = math.ceil(duration / seconds_per_part)\n\n    # Split and export\
+          \ the video\n    output_filepaths = []\n    for part in range(parts):\n\
+          \        # Calculate start and end times for the current part\n        start_time\
+          \ = part * 60\n        end_time = (part + 1) * 60\n\n        # Ensure end\
+          \ time does not exceed video duration\n        end_time = min(end_time,\
+          \ duration)\n\n        # Clip the video for the current part\n        current_part\
+          \ = video.subclip(start_time, end_time)\n\n        # Export the current\
+          \ part\n        output_filepath = output_filepath_template % part\n    \
+          \    current_part.write_videofile(\n            output_filepath, codec=video_codec,\
+          \ audio_codec=audio_codec\n        )\n        output_filepaths.append(output_filepath)\n\
+          \n    return output_filepaths\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: split-video-by-durations
+root:
+  dag:
+    outputs:
+      parameters:
+        Output:
+          valueFromParameter:
+            outputParameterKey: Output
+            producerSubtask: split-video-by-durations
+    tasks:
+      split-video-by-durations:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-video-by-durations
+        inputs:
+          artifacts:
+            video:
+              componentInputArtifact: video
+          parameters:
+            audio_codec:
+              componentInputParameter: audio_codec
+            output_filepath_template:
+              componentInputParameter: output_filepath_template
+            seconds_per_part:
+              componentInputParameter: seconds_per_part
+            video_codec:
+              componentInputParameter: video_codec
+        taskInfo:
+          name: split-video-by-durations
+  inputDefinitions:
+    artifacts:
+      video:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      audio_codec:
+        defaultValue: aac
+        isOptional: true
+        parameterType: STRING
+      output_filepath_template:
+        defaultValue: /tmp/part-%d.png
+        isOptional: true
+        parameterType: STRING
+      seconds_per_part:
+        defaultValue: 60.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      video_codec:
+        defaultValue: libx264
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    parameters:
+      Output:
+        parameterType: LIST
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0

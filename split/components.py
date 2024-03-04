@@ -135,6 +135,50 @@ def split_on_tokens_openai(
     return output_filepaths
 
 
+@dsl.component(base_image="python:3.11", packages_to_install=["moviepy"])
+def split_video_by_durations(
+    video: Input[Artifact],
+    seconds_per_part: int = 60,
+    output_filepath_template: str = "/tmp/part-%d.png",
+    video_codec: str = "libx264",
+    audio_codec: str = "aac",
+) -> List[str]:
+    from moviepy.editor import VideoFileClip
+    import math
+
+    # Load the video file
+    video = VideoFileClip(video.path)
+
+    # Calculate the duration of the video in seconds
+    duration = int(video.duration)
+
+    # Calculate the number of parts the video will be split into
+    parts = math.ceil(duration / seconds_per_part)
+
+    # Split and export the video
+    output_filepaths = []
+    for part in range(parts):
+        # Calculate start and end times for the current part
+        start_time = part * 60
+        end_time = (part + 1) * 60
+
+        # Ensure end time does not exceed video duration
+        end_time = min(end_time, duration)
+
+        # Clip the video for the current part
+        current_part = video.subclip(start_time, end_time)
+
+        # Export the current part
+        output_filepath = output_filepath_template % part
+        current_part.write_videofile(
+            output_filepath, codec=video_codec, audio_codec=audio_codec
+        )
+        output_filepaths.append(output_filepath)
+
+    return output_filepaths
+
+
 compiler.Compiler().compile(split_audio_on_silence, "split-audio-on-silence.yaml")
 compiler.Compiler().compile(split_pdf_by_pages, "split-pdf-by-pages.yaml")
 compiler.Compiler().compile(split_on_tokens_openai, "split-on-tokens-openai.yaml")
+compiler.Compiler().compile(split_video_by_durations, "split-video-by-durations.yaml")

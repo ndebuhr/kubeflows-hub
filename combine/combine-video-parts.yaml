@@ -1,0 +1,143 @@
+# PIPELINE DEFINITION
+# Name: combine-video-parts
+# Inputs:
+#    audio_codec: str [Default: 'aac']
+#    mime_type: str [Default: 'video/mp4']
+#    part_filepaths: list
+#    unsplit_video: system.Artifact
+#    video_codec: str [Default: 'libx264']
+# Outputs:
+#    combined_video: system.Artifact
+components:
+  comp-combine-video-parts:
+    executorLabel: exec-combine-video-parts
+    inputDefinitions:
+      artifacts:
+        unsplit_video:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        audio_codec:
+          defaultValue: aac
+          isOptional: true
+          parameterType: STRING
+        mime_type:
+          defaultValue: video/mp4
+          isOptional: true
+          parameterType: STRING
+        part_filepaths:
+          parameterType: LIST
+        video_codec:
+          defaultValue: libx264
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        combined_video:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-combine-video-parts:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - combine_video_parts
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'moviepy' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef combine_video_parts(\n    unsplit_video: Input[Artifact], \n\
+          \    part_filepaths: List[str],\n    combined_video: Output[Artifact],\n\
+          \    video_codec: str = \"libx264\",\n    audio_codec: str = \"aac\",\n\
+          \    mime_type: str = \"video/mp4\"\n):\n    from moviepy.editor import\
+          \ VideoFileClip, concatenate_videoclips\n\n    # Load the original video\
+          \ file\n    original_video = VideoFileClip(unsplit_video.path)\n\n    #\
+          \ Load the video parts\n    video_parts = [\n        VideoFileClip(part)\n\
+          \        for part in part_filepaths\n    ]\n\n    # Concatenate the video\
+          \ parts\n    final_video = concatenate_videoclips(video_parts)\n\n    #\
+          \ Use the audio from the original file\n    final_video = final_video.set_audio(original_video.audio)\n\
+          \n    # Export the final video\n    final_video.write_videofile(combined_video.path,\
+          \ codec=video_codec, audio_codec=audio_codec)\n\n    combined_video.metadata[\"\
+          mimeType\"] = mime_type\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: combine-video-parts
+root:
+  dag:
+    outputs:
+      artifacts:
+        combined_video:
+          artifactSelectors:
+          - outputArtifactKey: combined_video
+            producerSubtask: combine-video-parts
+    tasks:
+      combine-video-parts:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-combine-video-parts
+        inputs:
+          artifacts:
+            unsplit_video:
+              componentInputArtifact: unsplit_video
+          parameters:
+            audio_codec:
+              componentInputParameter: audio_codec
+            mime_type:
+              componentInputParameter: mime_type
+            part_filepaths:
+              componentInputParameter: part_filepaths
+            video_codec:
+              componentInputParameter: video_codec
+        taskInfo:
+          name: combine-video-parts
+  inputDefinitions:
+    artifacts:
+      unsplit_video:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+    parameters:
+      audio_codec:
+        defaultValue: aac
+        isOptional: true
+        parameterType: STRING
+      mime_type:
+        defaultValue: video/mp4
+        isOptional: true
+        parameterType: STRING
+      part_filepaths:
+        parameterType: LIST
+      video_codec:
+        defaultValue: libx264
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      combined_video:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0

@@ -1,0 +1,133 @@
+# PIPELINE DEFINITION
+# Name: visualize-via-histogram
+# Inputs:
+#    bins: int [Default: 20.0]
+#    title: str [Default: 'Histogram']
+#    values: list
+#    xlabel: str [Default: 'Value']
+#    ylabel: str [Default: 'Count']
+# Outputs:
+#    histogram: system.Artifact
+components:
+  comp-visualize-via-histogram:
+    executorLabel: exec-visualize-via-histogram
+    inputDefinitions:
+      parameters:
+        bins:
+          defaultValue: 20.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        title:
+          defaultValue: Histogram
+          isOptional: true
+          parameterType: STRING
+        values:
+          parameterType: LIST
+        xlabel:
+          defaultValue: Value
+          isOptional: true
+          parameterType: STRING
+        ylabel:
+          defaultValue: Count
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        histogram:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-visualize-via-histogram:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - visualize_via_histogram
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.7.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'matplotlib'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef visualize_via_histogram(\n    values: List[int],\n    histogram:\
+          \ Output[Artifact],\n    bins: int = 20,\n    title: str = 'Histogram',\n\
+          \    xlabel: str = 'Value',\n    ylabel: str = 'Count',\n):\n    import\
+          \ matplotlib.pyplot as plt\n\n    plt.hist(values, bins=bins)\n    plt.title(title)\n\
+          \    plt.xlabel(xlabel)\n    plt.ylabel(ylabel)\n\n    plt.savefig(output.path)\n\
+          \n    combined_video.metadata[\"mimeType\"] = \"image/png\"\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: visualize-via-histogram
+root:
+  dag:
+    outputs:
+      artifacts:
+        histogram:
+          artifactSelectors:
+          - outputArtifactKey: histogram
+            producerSubtask: visualize-via-histogram
+    tasks:
+      visualize-via-histogram:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-visualize-via-histogram
+        inputs:
+          parameters:
+            bins:
+              componentInputParameter: bins
+            title:
+              componentInputParameter: title
+            values:
+              componentInputParameter: values
+            xlabel:
+              componentInputParameter: xlabel
+            ylabel:
+              componentInputParameter: ylabel
+        taskInfo:
+          name: visualize-via-histogram
+  inputDefinitions:
+    parameters:
+      bins:
+        defaultValue: 20.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      title:
+        defaultValue: Histogram
+        isOptional: true
+        parameterType: STRING
+      values:
+        parameterType: LIST
+      xlabel:
+        defaultValue: Value
+        isOptional: true
+        parameterType: STRING
+      ylabel:
+        defaultValue: Count
+        isOptional: true
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      histogram:
+        artifactType:
+          schemaTitle: system.Artifact
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.7.0
